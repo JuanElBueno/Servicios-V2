@@ -20,7 +20,7 @@ namespace Servicios
         static string visualPath = Path.Combine(optimizacionPath, "Microsoft-Visual-C++");
         // URLs DE ACTUALIZACIÓN (CAMBIA ESTO POR TUS LINKS REALES DE GITHUB)
         static string urlVersionTxt = "https://raw.githubusercontent.com/JuanElBueno/Mecha/main/version.txt";
-        static string urlNuevoExe = "https://github.com/JuanElBueno/Mecha/raw/main/Servicios.exe";
+        static string urlNuevoExe = "https://github.com/JuanElBueno/Servicios-V2/releases/download/1.0/Servicios.exe";
 
         // Ruta de WinRAR (necesaria según tu script)
         static string winrarPath = @"C:\Program Files\WinRAR\WinRAR.exe";
