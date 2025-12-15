@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO.Compression; // Necesario para descomprimir ZIP
 using System.Diagnostics;
 using System.IO;
 using System.Net.NetworkInformation;
@@ -18,11 +19,12 @@ namespace Servicios
         static string optimizacionPath = Path.Combine(rutaBase, "optimizacion");
         static string regPath = Path.Combine(optimizacionPath, "reg");
         static string visualPath = Path.Combine(optimizacionPath, "Microsoft-Visual-C++");
-        // URLs DE ACTUALIZACIÓN (CAMBIA ESTO POR TUS LINKS REALES DE GITHUB)
+
+        // URLs DE ACTUALIZACIÓN
         static string urlVersionTxt = "https://raw.githubusercontent.com/JuanElBueno/Servicios-V2/refs/heads/master/version.txt";
         static string urlNuevoExe = "https://github.com/JuanElBueno/Servicios-V2/releases/download/1.0/Servicios.exe";
 
-        // Ruta de WinRAR (necesaria según tu script)
+        // Ruta de WinRAR (Mantenida por compatibilidad, aunque se prioriza ZIP nativo)
         static string winrarPath = @"C:\Program Files\WinRAR\WinRAR.exe";
 
         static string versionActual = "1.0";
@@ -42,9 +44,16 @@ namespace Servicios
             "FontCache3.0.0.0", "WSearch", "SCPolicySvc", "autotimesvc", "MixedRealityOpenXRSvc"
         };
 
-        static async Task Main(string[] args)
+        // 1. Método estático para título
+        public static void EstablecerTitulo()
         {
             Console.Title = $"Juan El Bueno {versionActual} ({(Environment.Is64BitOperatingSystem ? "64 bits" : "32 bits")})";
+        }
+
+        // 2. Main
+        static async Task Main(string[] args)
+        {
+            EstablecerTitulo();
 
             if (!EsAdministrador())
             {
@@ -66,7 +75,7 @@ namespace Servicios
         {
             Console.Clear();
             Color("==================================================", ConsoleColor.White);
-            Color("=                       MENU                     =", ConsoleColor.White);
+            Color("=                        MENU                    =", ConsoleColor.White);
             Color("==================================================", ConsoleColor.White);
             Color("* 1) Servicios (Gestionar)                       *", ConsoleColor.White);
             Color("* 2) Características de Windows 10               *", ConsoleColor.White);
@@ -126,7 +135,8 @@ namespace Servicios
             // 7. Registro Masivo
             AplicarRegistroMasivo();
 
-            // 8. Descarga e Instalación de .REG (Reg.rar)
+            // 8. Descarga e Instalación de .REG (Reg.zip)
+            // Nota: .Wait() se usa porque este método no es async en el menú switch.
             GestionarRegRar().Wait();
 
             // 9. Visual C++
@@ -149,7 +159,6 @@ namespace Servicios
 
             foreach (var s in serviciosMecha)
             {
-                // wmic service where name='X' call ChangeStartmode Disabled
                 EjecutarComando($"wmic service where name='{s}' call ChangeStartmode Disabled");
                 EjecutarComando($"sc stop \"{s}\"");
             }
@@ -159,7 +168,6 @@ namespace Servicios
         {
             Color("[+] Iniciando limpieza profunda de archivos temporales...", ConsoleColor.Yellow);
 
-            // Directorio de usuarios
             string usersPath = @"C:\Users";
             if (Directory.Exists(usersPath))
             {
@@ -168,7 +176,6 @@ namespace Servicios
                     string userName = Path.GetFileName(userDir);
                     Console.Title = $"Limpiando usuario: {userName} ...";
 
-                    // Rutas a limpiar dentro de cada usuario
                     string[] rutasLimpiar = {
                         @"cookies",
                         @"Local Settings\Temp",
@@ -177,9 +184,9 @@ namespace Servicios
                         @"AppData\Local\Microsoft\Windows\Temporary Internet Files",
                         @"AppData\Local\Microsoft\Windows\WER\ReportArchive",
                         @"AppData\Local\Google\Chrome\User Data\Default\Cache",
-                        @"AppData\Local\Microsoft\Windows\INetCache", // Edge
+                        @"AppData\Local\Microsoft\Windows\INetCache",
                         @"AppData\Local\Microsoft\Windows\INetCookies",
-                        @"AppData\Local\Microsoft\Terminal Server Client\Cache", // RDP
+                        @"AppData\Local\Microsoft\Terminal Server Client\Cache",
                         @"AppData\Local\Opera Software\Opera Next\Cache",
                         @"AppData\Local\Vivaldi\User Data\Default\Cache",
                         @"AppData\Local\BraveSoftware\Brave-Browser\User Data\Default\Cache"
@@ -193,16 +200,15 @@ namespace Servicios
                 }
             }
 
-            // Limpiezas del sistema
             BorrarContenidoCarpeta(Environment.GetEnvironmentVariable("TEMP"));
             BorrarContenidoCarpeta(@"C:\Windows\Temp");
             BorrarContenidoCarpeta(@"C:\Windows\Prefetch");
 
-            // Archivos sueltos específicos
             EjecutarComando("del c:\\WIN386.SWP /f /q");
-            EjecutarComando("del *.log /a /s /q /f"); // Cuidado con esto en raíz, pero estaba en el script
+            EjecutarComando("del *.log /a /s /q /f");
 
             Console.Title = "Archivos eliminados...";
+            EstablecerTitulo();
         }
 
         static void BorrarContenidoCarpeta(string ruta)
@@ -211,14 +217,12 @@ namespace Servicios
 
             try
             {
-                // Intentar borrar archivos
                 string[] files = Directory.GetFiles(ruta, "*.*", SearchOption.AllDirectories);
                 foreach (string file in files)
                 {
-                    try { File.Delete(file); } catch { } // Ignorar errores si está en uso
+                    try { File.Delete(file); } catch { }
                 }
 
-                // Intentar borrar carpetas vacías
                 string[] dirs = Directory.GetDirectories(ruta);
                 foreach (string dir in dirs)
                 {
@@ -238,7 +242,6 @@ namespace Servicios
 
             BorrarContenidoCarpeta(@"C:\Windows\SoftwareDistribution");
 
-            // Configuración Regedit Update
             EjecutarComando(@"reg add HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate /v DoNotConnectToWindowsUpdateInternetLocations /t REG_DWORD /d 1 /f");
             EjecutarComando(@"reg add HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate /v SetDisableUXWUAccess /t REG_DWORD /d 1 /f");
             EjecutarComando(@"reg add HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU /v NoAutoUpdate /t REG_DWORD /d 1 /f");
@@ -253,86 +256,138 @@ namespace Servicios
             EjecutarPowerShell("Disable-MMAgent -MemoryCompression");
             EjecutarPowerShell("Clear-RecycleBin -Confirm:$false");
 
-            // Loop complejo de Set-ProcessMitigation del script original
             EjecutarPowerShell("ForEach($v in (Get-Command -Name \\\"Set-ProcessMitigation\\\").Parameters[\\\"Disable\\\"].Attributes.ValidValues){Set-ProcessMitigation -System -Disable $v.ToString() -ErrorAction SilentlyContinue}");
 
-            // Lista explícita
             string mitigations = "DEP, EmulateAtlThunks, SEHOP, ForceRelocateImages, RequireInfo, BottomUp, HighEntropy, StrictHandle, DisableWin32kSystemCalls, AuditSystemCall, DisableExtensionPoints, BlockDynamicCode, AllowThreadsToOptOut, AuditDynamicCode, CFG, SuppressExports, StrictCFG, AuditMicrosoftSigned, AuditStoreSigned, DisableNonSystemFonts, AuditFont, BlockRemoteImageLoads, BlockLowLabelImageLoads, PreferSystem32, AuditRemoteImageLoads, AuditLowLabelImageLoads, AuditPreferSystem32, EnableExportAddressFilter, AuditEnableExportAddressFilter, EnableExportAddressFilterPlus, AuditEnableExportAddressFilterPlus, EnableImportAddressFilter, AuditEnableImportAddressFilter, EnableRopStackPivot, AuditEnableRopStackPivot, EnableRopCallerCheck, AuditEnableRopCallerCheck, EnableRopSimExec, AuditEnableRopSimExec, SEHOP, AuditSEHOP, SEHOPTelemetry, TerminateOnError, DisallowChildProcessCreation, AuditChildProcess";
             EjecutarPowerShell($"set-ProcessMitigation -System -Disable {mitigations}");
         }
 
-static void AplicarRegistroMasivo()
+        static void AplicarRegistroMasivo()
         {
-            Color("[+] Aplicando optimizaciones masivas del registro (Mecha)...", ConsoleColor.Cyan);
-
-            // -----------------------------------------------------------------------------------------
-            // 1. CALCULO DE VARIABLES DINÁMICAS (RAM y CACHE CPU)
-            // -----------------------------------------------------------------------------------------
-            string l2Cache = "0";
-            string l3Cache = "0";
-            string svchostThreshold = "1048576"; // Valor por defecto seguro
-
-            try 
+            // 1. CALCULO DE RAM PARA 'SvcHostSplitThresholdInKB'
+            try
             {
-                // A) Calcular RAM para SvcHostSplit
                 long memVal = 0;
-                using (Process p = new Process())
+                ProcessStartInfo psi = new ProcessStartInfo("wmic", "os get TotalVisibleMemorySize /format:value");
+                psi.RedirectStandardOutput = true;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+
+                using (Process p = Process.Start(psi))
                 {
-                    p.StartInfo.FileName = "wmic";
-                    p.StartInfo.Arguments = "os get TotalVisibleMemorySize /format:value";
-                    p.StartInfo.RedirectStandardOutput = true;
-                    p.StartInfo.UseShellExecute = false;
-                    p.StartInfo.CreateNoWindow = true;
-                    p.Start();
                     string output = p.StandardOutput.ReadToEnd();
                     p.WaitForExit();
-                    
-                    if (output.Contains("TotalVisibleMemorySize"))
+
+                    string[] lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var line in lines)
                     {
-                        string val = output.Split('=')[1].Trim();
-                        long.TryParse(val, out memVal);
-                        if (memVal > 0) svchostThreshold = (memVal + 1024000).ToString();
+                        if (line.Contains("TotalVisibleMemorySize"))
+                        {
+                            string valString = line.Split('=')[1].Trim();
+                            long.TryParse(valString, out memVal);
+                            break;
+                        }
                     }
                 }
 
-                // B) Calcular Cache L2 (%sum1%)
-                using (Process p = new Process())
+                if (memVal > 0)
                 {
-                    p.StartInfo.FileName = "wmic";
-                    p.StartInfo.Arguments = "cpu get L2CacheSize /format:value";
-                    p.StartInfo.RedirectStandardOutput = true;
-                    p.StartInfo.UseShellExecute = false;
-                    p.StartInfo.CreateNoWindow = true;
-                    p.Start();
-                    string output = p.StandardOutput.ReadToEnd();
-                    p.WaitForExit();
-                    // Buscamos el valor numérico
-                    var lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    foreach(var line in lines) if(line.Contains("L2CacheSize")) l2Cache = line.Split('=')[1].Trim();
-                }
-
-                // C) Calcular Cache L3 (%sum2%)
-                using (Process p = new Process())
-                {
-                    p.StartInfo.FileName = "wmic";
-                    p.StartInfo.Arguments = "cpu get L3CacheSize /format:value";
-                    p.StartInfo.RedirectStandardOutput = true;
-                    p.StartInfo.UseShellExecute = false;
-                    p.StartInfo.CreateNoWindow = true;
-                    p.Start();
-                    string output = p.StandardOutput.ReadToEnd();
-                    p.WaitForExit();
-                    var lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    foreach(var line in lines) if(line.Contains("L3CacheSize")) l3Cache = line.Split('=')[1].Trim();
+                    long svchostThreshold = memVal + 1024000;
+                    EjecutarComando($@"reg add ""HKLM\SYSTEM\CurrentControlSet\Control"" /v ""SvcHostSplitThresholdInKB"" /t REG_DWORD /d ""{svchostThreshold}"" /f");
                 }
             }
-            catch { } // Si falla WMI, se usan los valores por defecto "0"
+            catch { }
 
-            // -----------------------------------------------------------------------------------------
-            // 2. LISTA COMPLETA DE COMANDOS REGISTRY
-            // -----------------------------------------------------------------------------------------
+            // 2. LISTA DE COMANDOS REGISTRY
             string[] comandosReg = {
-                // --- Power & Latency (Bloque Grande) ---
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""DoNotConnectToWindowsUpdateInternetLocations"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""SetDisableUXWUAccess"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"" /v ""NoAutoUpdate"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""ExcludeWUDriversInQualityUpdate"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""ContigFileAllocSize"" /t REG_DWORD /d ""1536"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""DisableDeleteNotification"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""DontVerifyRandomDrivers"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""FilenameCache"" /t REG_DWORD /d ""1024"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""LongPathsEnabled"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsAllowExtendedCharacter8dot3Rename"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsBugcheckOnCorrupt"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisable8dot3NameCreation"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisableCompression"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisableEncryption"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsEncryptPagingFile"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsMemoryUsage"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsMftZoneReservation"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""PathCache"" /t REG_DWORD /d ""128"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""RefsDisableLastAccessUpdate"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""UdfsSoftwareDefectManagement"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""Win31FileSystem"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""ContigFileAllocSize"" /t REG_DWORD /d ""1536"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""DisableDeleteNotification"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""DontVerifyRandomDrivers"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""FilenameCache"" /t REG_DWORD /d ""1024"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""LongPathsEnabled"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsAllowExtendedCharacter8dot3Rename"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsBugcheckOnCorrupt"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisable8dot3NameCreation"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisableCompression"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisableEncryption"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsEncryptPagingFile"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsMemoryUsage"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsMftZoneReservation"" /t REG_DWORD /d ""3"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""PathCache"" /t REG_DWORD /d ""128"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""RefsDisableLastAccessUpdate"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""UdfsSoftwareDefectManagement"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""Win31FileSystem"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Executive"" /v ""AdditionalCriticalWorkerThreads"" /t REG_DWORD /d ""22"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Executive"" /v ""AdditionalDelayedWorkerThreads"" /t REG_DWORD /d ""22"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\I/O System"" /v ""CountOperations"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""ClearPageFileAtShutdown"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverride"" /t REG_DWORD /d ""3"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverrideMask"" /t REG_DWORD /d ""3"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""IoPageLockLimit"" /t REG_DWORD /d ""16710656"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""LargeSystemCache"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""SystemPages"" /t REG_DWORD /d ""4294967295"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""DisablePagingExecutive"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnableBootTrace"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnablePrefetcher"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnableSuperfetch"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"" /v ""NetworkThrottlingIndex"" /t REG_DWORD /d ""4294967295"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"" /v ""SystemResponsiveness"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""AutoDisconnect"" /t REG_DWORD /d ""4294967295"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""Size"" /t REG_DWORD /d ""3"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""EnableOplocks"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""IRPStackSize"" /t REG_DWORD /d ""32"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""SharingViolationDelay"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""SharingViolationRetries"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl"" /v ""ConvertibleSlateMode"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl"" /v ""Win32PrioritySeparation"" /t REG_DWORD /d ""38"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\usbxhci\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\USBHUB3\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\NDIS\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""AutoEndTasks"" /t REG_SZ /d ""1"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""HungAppTimeout"" /t REG_SZ /d ""1000"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""WaitToKillAppTimeout"" /t REG_SZ /d ""2000"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""LowLevelHooksTimeout"" /t REG_SZ /d ""1000"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""MenuShowDelay"" /t REG_SZ /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control"" /v ""WaitToKillServiceTimeout"" /t REG_SZ /d ""2000"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance"" /v ""MaintenanceDisabled"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""HibernateEnabled"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling"" /v ""PowerThrottlingOff"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\GpuEnergyDrv"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler"" /v ""EnablePreemption"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR"" /v ""value"" /t REG_SZ /d ""00000000"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowSharedUserAppData"" /v ""value"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications"" /v ""GlobalUserDisabled"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKCU\Software\Microsoft\Windows\CurrentVersion\Search"" /v ""BackgroundAppGlobalToggle"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"" /v ""DisableTaskOffload"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""LocalPriority"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""HostsPriority"" /t REG_DWORD /d ""5"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""DnsPriority"" /t REG_DWORD /d ""6"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""NetbtPriority"" /t REG_DWORD /d ""7"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Spooler"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\PrintNotify"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\MapsBroker"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
                 @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""ExitLatency"" /t REG_DWORD /d ""1"" /f",
                 @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""ExitLatencyCheckEnabled"" /t REG_DWORD /d ""1"" /f",
                 @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""Latency"" /t REG_DWORD /d ""1"" /f",
@@ -353,179 +408,18 @@ static void AplicarRegistroMasivo()
                 @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MinimumThrottlePercent"" /t REG_DWORD /d ""0"" /f",
                 @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MaximumThrottlePercent"" /t REG_DWORD /d ""0"" /f",
                 @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MaximumPerformancePercent"" /t REG_DWORD /d ""100"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""InitialUnparkCount"" /t REG_DWORD /d ""100"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyActivelyUsed"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleLongTime"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleMonitorOff"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleNoContext"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleShortTime"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleVeryLongTime"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceIdle0"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceIdle0MonitorOff"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceIdle1"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceIdle1MonitorOff"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceMemory"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceNoContext"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceNoContextMonitorOff"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceOther"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceTimerPeriod"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultMemoryRefreshLatencyToleranceActivelyUsed"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultMemoryRefreshLatencyToleranceMonitorOff"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultMemoryRefreshLatencyToleranceNoContext"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MaxIAverageGraphicsLatencyInOneBucket"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MiracastPerfTrackGraphicsLatency"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MonitorLatencyTolerance"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MonitorRefreshLatencyTolerance"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""TransitionLatency"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""EnablePreemption"" /t REG_DWORD /d ""0"" /f",
-
-                // --- Priority Control ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl"" /v ""ConvertibleSlateMode"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl"" /v ""Win32PrioritySeparation"" /t REG_DWORD /d ""38"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\usbxhci\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\USBHUB3\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\NDIS\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
-
-                // --- Session Manager & Desktop ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power"" /v ""CoalescingTimerInterval"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKCU\Control Panel\Desktop"" /v ""AutoEndTasks"" /t REG_SZ /d ""1"" /f",
-                @"reg add ""HKCU\Control Panel\Desktop"" /v ""HungAppTimeout"" /t REG_SZ /d ""1000"" /f",
-                @"reg add ""HKCU\Control Panel\Desktop"" /v ""WaitToKillAppTimeout"" /t REG_SZ /d ""2000"" /f",
-                @"reg add ""HKCU\Control Panel\Desktop"" /v ""LowLevelHooksTimeout"" /t REG_SZ /d ""1000"" /f",
-                @"reg add ""HKCU\Control Panel\Desktop"" /v ""MenuShowDelay"" /t REG_SZ /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control"" /v ""WaitToKillServiceTimeout"" /t REG_SZ /d ""2000"" /f",
-                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance"" /v ""MaintenanceDisabled"" /t REG_DWORD /d ""1"" /f",
-                
-                // --- Driver & Policies ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""HibernateEnabled"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
-                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching"" /v ""SearchOrderConfig"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"" /v ""EnableLua"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR"" /v ""value"" /t REG_SZ /d ""00000000"" /f",
-                @"reg add ""HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowSharedUserAppData"" /v ""value"" /t REG_DWORD /d ""0"" /f",
-                
-                // --- TCP/IP & Memory Overrides ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"" /v ""DisableTaskOffload"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverride"" /t REG_DWORD /d ""3"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverrideMask"" /t REG_DWORD /d ""3"" /f",
-                
-                // --- Services Start ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Spooler"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\PrintNotify"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\MapsBroker"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling"" /v ""PowerThrottlingOff"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\GpuEnergyDrv"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
-                
-                // --- System Policies ---
-                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"" /v ""EnableLUA"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler"" /v ""EnablePreemption"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications"" /v ""GlobalUserDisabled"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKCU\Software\Microsoft\Windows\CurrentVersion\Search"" /v ""BackgroundAppGlobalToggle"" /t REG_DWORD /d ""0"" /f",
-
-                // --- LanmanServer (Network Sharing) ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""autodisconnect"" /t REG_DWORD /d ""4294967295"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""Size"" /t REG_DWORD /d ""3"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""EnableOplocks"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""IRPStackSize"" /t REG_DWORD /d ""32"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""SharingViolationDelay"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""SharingViolationRetries"" /t REG_DWORD /d ""0"" /f",
-
-                // --- Network Provider Priorities ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""LocalPriority"" /t REG_DWORD /d ""4"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""HostsPriority"" /t REG_DWORD /d ""5"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""DnsPriority"" /t REG_DWORD /d ""6"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""NetbtPriority"" /t REG_DWORD /d ""7"" /f",
-                
-                // --- Multimedia Throttling ---
-                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"" /v ""NetworkThrottlingIndex"" /t REG_DWORD /d ""4294967295"" /f",
-                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"" /v ""SystemResponsiveness"" /t REG_DWORD /d ""0"" /f",
-
-                // --- Variables Dinámicas de Cache (%sum1% y %sum2%) ---
-                // Aquí usamos interpolación de strings ($"") para meter los valores calculados
-                $@"reg add ""HKLM\SYSTEM\ControlSet001\Control\Session Manager\Memory Management"" /v ""SecondLevelDataCache"" /t REG_DWORD /d ""{l2Cache}"" /f",
-                $@"reg add ""HKLM\SYSTEM\ControlSet001\Control\Session Manager\Memory Management"" /v ""ThirdLevelDataCache"" /t REG_DWORD /d ""{l3Cache}"" /f",
-                
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\Session Manager\Memory Management"" /v ""PagingFiles"" /t REG_MULTI_SZ /d ""c:\pagefile.sys 0 0"" /f",
-                
-                // --- RAM Dinámica (SvcHostSplit) ---
-                $@"reg add ""HKLM\SYSTEM\CurrentControlSet\Control"" /v ""SvcHostSplitThresholdInKB"" /t REG_DWORD /d ""{svchostThreshold}"" /f",
-
-                // --- FileSystem (ControlSet001) ---
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""ContigFileAllocSize"" /t REG_DWORD /d ""1536"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""DisableDeleteNotification"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""DontVerifyRandomDrivers"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""FilenameCache"" /t REG_DWORD /d ""1024"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""LongPathsEnabled"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsAllowExtendedCharacter8dot3Rename"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsBugcheckOnCorrupt"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisable8dot3NameCreation"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisableCompression"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisableEncryption"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsEncryptPagingFile"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsMemoryUsage"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsMftZoneReservation"" /t REG_DWORD /d ""4"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""PathCache"" /t REG_DWORD /d ""128"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""RefsDisableLastAccessUpdate"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""UdfsSoftwareDefectManagement"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""Win31FileSystem"" /t REG_DWORD /d ""0"" /f",
-
-                // --- FileSystem (CurrentControlSet) ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""ContigFileAllocSize"" /t REG_DWORD /d ""1536"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""DisableDeleteNotification"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""DontVerifyRandomDrivers"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""FilenameCache"" /t REG_DWORD /d ""1024"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""LongPathsEnabled"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsAllowExtendedCharacter8dot3Rename"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsBugcheckOnCorrupt"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisable8dot3NameCreation"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisableCompression"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisableEncryption"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsEncryptPagingFile"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsMemoryUsage"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsMftZoneReservation"" /t REG_DWORD /d ""3"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""PathCache"" /t REG_DWORD /d ""128"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""RefsDisableLastAccessUpdate"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""UdfsSoftwareDefectManagement"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""Win31FileSystem"" /t REG_DWORD /d ""0"" /f",
-
-                // --- Executive & Memory ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Executive"" /v ""AdditionalCriticalWorkerThreads"" /t REG_DWORD /d ""00000016"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Executive"" /v ""AdditionalDelayedWorkerThreads"" /t REG_DWORD /d ""00000016"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\I/O System"" /v ""CountOperations"" /t REG_DWORD /d ""00000000"" /f",
-                
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""ClearPageFileAtShutdown"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverride"" /t REG_DWORD /d ""00000003"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverrideMask"" /t REG_DWORD /d ""00000003"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""IoPageLockLimit"" /t REG_DWORD /d ""08000000"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""LargeSystemCache"" /t REG_DWORD /d ""00000000"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""SystemPages"" /t REG_DWORD /d ""4294967295"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""DisablePagingExecutive"" /t REG_DWORD /d ""1"" /f",
-                // Nota: Tu script repite IoPageLockLimit con otro valor, ponemos el último que sobreescribe
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""IoPageLockLimit"" /t REG_DWORD /d ""16710656"" /f",
-                
-                // --- Prefetch ---
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnableBootTrace"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnablePrefetcher"" /t REG_DWORD /d ""0"" /f",
-                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnableSuperfetch"" /t REG_DWORD /d ""0"" /f",
-
-                // --- Windows Update Policies ---
-                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""DoNotConnectToWindowsUpdateInternetLocations"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""SetDisableUXWUAccess"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"" /v ""NoAutoUpdate"" /t REG_DWORD /d ""1"" /f",
-                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""ExcludeWUDriversInQualityUpdate"" /t REG_DWORD /d ""1"" /f"
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FortniteClient-Win64-Shipping.exe\PerfOptions"" /v ""CpuPriorityClass"" /t REG_DWORD /d ""3"" /f"
             };
 
-            // 3. Ejecutar el bucle
             foreach (var cmd in comandosReg)
             {
                 EjecutarComando(cmd);
             }
-            
+
             // 4. Comandos TCP Heuristics
             EjecutarComando("netsh interface tcp set heuristics disabled");
-            
-            // 5. USB IDLING (Lógica compleja de tu script usando CMD directo)
+
+            // 5. USB IDLING
             try
             {
                 string comandoBatchUSB = "FOR /F \"tokens=*\" %a in ('WMIC PATH Win32_USBHub GET DeviceID^| FINDSTR /L \"VID_\"') DO (REG ADD \"HKLM\\SYSTEM\\CurrentControlSet\\Enum\\%a\\Device Parameters\" /F /V \"EnhancedPowerManagementEnabled\" /T REG_DWORD /d 0)";
@@ -536,134 +430,197 @@ static void AplicarRegistroMasivo()
             Color("[+] Registro masivo aplicado.", ConsoleColor.Green);
         }
 
+        // -----------------------------------------------------------
+        // GESTIONAR REGISTRO (VERSIÓN ZIP)
+        // -----------------------------------------------------------
         static async Task GestionarRegRar()
         {
-            string urlReg = "https://github.com/JuanElBueno/Mecha/raw/refs/heads/main/reg.rar";
-            string fileReg = Path.Combine(optimizacionPath, "reg.rar");
+            string urlReg = "https://github.com/JuanElBueno/Mecha/raw/refs/heads/main/reg.zip";
+            string fileReg = Path.Combine(optimizacionPath, "reg.zip");
 
-            if (!File.Exists(winrarPath))
-            {
-                Color("ERROR: No tienes WinRAR instalado en la ruta por defecto.", ConsoleColor.Red);
-                return;
-            }
+            // Limpiamos la carpeta de destino
+            if (Directory.Exists(regPath)) Directory.Delete(regPath, true);
+            Directory.CreateDirectory(regPath);
 
             if (!File.Exists(fileReg))
             {
-                Color("[+] Descargando reg.rar...", ConsoleColor.Yellow);
-                await DescargarArchivo(urlReg, fileReg);
+                Color("[+] Descargando reg.zip...", ConsoleColor.Yellow);
+                await DescargarArchivoConProgreso(urlReg, fileReg);
             }
 
             if (File.Exists(fileReg))
             {
-                Color("[+] Extrayendo reg.rar...", ConsoleColor.Green);
-                // Usamos WinRAR por línea de comandos como en el script original
-                EjecutarComando($"\"{winrarPath}\" x -o+ \"{fileReg}\" \"{regPath}\"");
-
-                Thread.Sleep(2000);
-
-                // Aplicar todos los .reg excepto el bluetooth
-                if (Directory.Exists(regPath))
+                Color("[+] Extrayendo archivos (Nativo)...", ConsoleColor.Green);
+                try
                 {
-                    string[] regFiles = Directory.GetFiles(regPath, "*.reg");
-                    foreach (var reg in regFiles)
+                    ZipFile.ExtractToDirectory(fileReg, regPath);
+                    Thread.Sleep(1000);
+
+                    if (Directory.Exists(regPath))
                     {
-                        if (Path.GetFileName(reg) != "OPTIONAL Disable Bluetooth Services.reg")
+                        string[] regFiles = Directory.GetFiles(regPath, "*.reg", SearchOption.AllDirectories);
+
+                        foreach (var reg in regFiles)
                         {
-                            Console.WriteLine($"Aplicando registro: {Path.GetFileName(reg)}");
-                            EjecutarComando($"regedit /s \"{reg}\"");
+                            if (Path.GetFileName(reg) != "OPTIONAL Disable Bluetooth Services.reg")
+                            {
+                                Console.WriteLine($"Aplicando registro: {Path.GetFileName(reg)}");
+                                EjecutarComando($"regedit /s \"{reg}\"");
+                            }
+                        }
+
+                        Console.WriteLine();
+                        Console.Write("¿Quieres desactivar los servicios de Bluetooth? (y/n): ");
+                        if (Console.ReadLine().ToLower() == "y")
+                        {
+                            string btReg = regFiles.FirstOrDefault(f => Path.GetFileName(f) == "OPTIONAL Disable Bluetooth Services.reg");
+                            if (btReg != null && File.Exists(btReg))
+                            {
+                                EjecutarComando($"regedit /s \"{btReg}\"");
+                                Color("Bluetooth deshabilitado.", ConsoleColor.Green);
+                            }
                         }
                     }
-
-                    Console.Write("¿Si quieres activar bluetooth? (y/n): ");
-                    if (Console.ReadLine().ToLower() == "y")
-                    {
-                        string btReg = Path.Combine(regPath, "OPTIONAL Disable Bluetooth Services.reg");
-                        if (File.Exists(btReg)) EjecutarComando($"regedit /s \"{btReg}\"");
-                    }
+                }
+                catch (Exception ex)
+                {
+                    Color($"Error al extraer o aplicar: {ex.Message}", ConsoleColor.Red);
+                    Color("Asegúrate de que el archivo en GitHub sea .ZIP y no .RAR", ConsoleColor.Yellow);
                 }
             }
         }
 
-        static async Task GestionarVisualC()
-        {
-            string urlVisual = "https://github.com/JuanElBueno/Mecha/releases/download/1.70/Microsoft-Visual-C++.rar";
-            string fileVisual = Path.Combine(optimizacionPath, "Microsoft-Visual-C++.rar");
-
-            if (!File.Exists(winrarPath)) return;
-
-            if (!File.Exists(fileVisual))
-            {
-                Color("[+] Descargando Microsoft-Visual-C++.rar...", ConsoleColor.Yellow);
-                await DescargarArchivo(urlVisual, fileVisual);
-            }
-
-            if (File.Exists(fileVisual))
-            {
-                Color("[+] Instalando Visual C++ Runtimes...", ConsoleColor.Green);
-                EjecutarComando($"\"{winrarPath}\" x -o+ \"{fileVisual}\" \"{visualPath}\"");
-                Thread.Sleep(2000);
-
-                if (Directory.Exists(visualPath))
-                {
-                    // Ejecutar instaladores
-                    string[] installers = Directory.GetFiles(visualPath, "*.exe");
-                    // O ejecutar el install_all.bat si existe, o uno por uno
-                    // En el script original se llaman uno por uno con /passive /norestart
-
-                    // Lógica simplificada: Buscar instaladores y ejecutarlos en silencio
-                    // NOTA: Para replicar exactamente el script, deberíamos ejecutar "vcredist2005_x86.exe /q", etc.
-                    // Pero como C# lista archivos, podemos iterar.
-
-                    // Ejecutar instalador AIO si existe (mencionado al final del script)
-                    string aio = Path.Combine(visualPath, "VisualCppRedist_AIO_x86_x64.exe");
-                    if (File.Exists(aio))
-                    {
-                        EjecutarComando($"\"{aio}\" /Y");
-                    }
-                    else
-                    {
-                        // Fallback manual
-                        Color("Ejecutando instaladores individuales (esto puede tardar)...", ConsoleColor.Gray);
-                        string argsInstall = "/passive /norestart";
-                        foreach (var exe in installers)
-                        {
-                            EjecutarComando($"\"{exe}\" {argsInstall}");
-                        }
-                    }
-                }
-            }
-        }
-        #endregion
-
-        #region MÉTODOS AUXILIARES
-        static async Task DescargarArchivo(string url, string destino)
+        // -----------------------------------------------------------
+        // NUEVA FUNCIÓN DE DESCARGA CON BARRA DE PROGRESO
+        // -----------------------------------------------------------
+        static async Task DescargarArchivoConProgreso(string url, string destino)
         {
             try
             {
                 using (HttpClient client = new HttpClient())
                 {
-                    var response = await client.GetAsync(url);
-                    if (response.IsSuccessStatusCode)
+                    using (var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
                     {
-                        using (var fs = new FileStream(destino, FileMode.CreateNew))
+                        response.EnsureSuccessStatusCode();
+
+                        var totalBytes = response.Content.Headers.ContentLength ?? -1L;
+                        var canReportProgress = totalBytes != -1;
+
+                        using (var contentStream = await response.Content.ReadAsStreamAsync())
+                        using (var fileStream = new FileStream(destino, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true))
                         {
-                            await response.Content.CopyToAsync(fs);
+                            var buffer = new byte[8192];
+                            var isMoreToRead = true;
+                            var totalRead = 0L;
+
+                            Console.WriteLine($"Iniciando descarga: {Path.GetFileName(destino)}");
+
+                            do
+                            {
+                                var read = await contentStream.ReadAsync(buffer, 0, buffer.Length);
+                                if (read == 0)
+                                {
+                                    isMoreToRead = false;
+                                }
+                                else
+                                {
+                                    await fileStream.WriteAsync(buffer, 0, read);
+                                    totalRead += read;
+
+                                    if (canReportProgress)
+                                    {
+                                        var porcentaje = (double)totalRead / totalBytes * 100;
+                                        DibujarBarraProgreso(porcentaje);
+                                    }
+                                }
+                            }
+                            while (isMoreToRead);
+
+                            Console.WriteLine();
+                            Color("Descarga completada con éxito.", ConsoleColor.Green);
                         }
-                        Color("Descarga completada.", ConsoleColor.Green);
-                    }
-                    else
-                    {
-                        Color("Error en descarga.", ConsoleColor.Red);
                     }
                 }
             }
             catch (Exception ex)
             {
-                Color($"Error descargando: {ex.Message}", ConsoleColor.Red);
+                Console.WriteLine();
+                Color($"ERROR en la descarga: {ex.Message}", ConsoleColor.Red);
             }
         }
 
-        #region LOGICA ANTERIOR (SERVICIOS, ETC)
+        static void DibujarBarraProgreso(double porcentaje)
+        {
+            int anchoBarra = 50;
+            int progresoBloques = (int)((porcentaje / 100) * anchoBarra);
+
+            Console.CursorLeft = 0;
+            Console.Write("[");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write(new string('|', progresoBloques));
+            Console.ForegroundColor = ConsoleColor.Gray;
+            Console.Write(new string('.', anchoBarra - progresoBloques));
+            Console.ResetColor();
+            Console.Write($"] {porcentaje:0.00}%");
+        }
+
+        // -----------------------------------------------------------
+        // GESTIONAR VISUAL C++ (VERSIÓN ZIP)
+        // -----------------------------------------------------------
+        static async Task GestionarVisualC()
+        {
+            string urlVisual = "https://github.com/JuanElBueno/Mecha/releases/download/1.70/Microsoft-Visual-C++.zip";
+            string fileVisual = Path.Combine(optimizacionPath, "Microsoft-Visual-C++.zip");
+
+            if (!File.Exists(fileVisual))
+            {
+                Color("[+] Descargando Microsoft-Visual-C++.zip...", ConsoleColor.Yellow);
+                await DescargarArchivoConProgreso(urlVisual, fileVisual);
+            }
+
+            if (File.Exists(fileVisual))
+            {
+                Color("[+] Extrayendo Visual C++...", ConsoleColor.Green);
+
+                if (Directory.Exists(visualPath)) Directory.Delete(visualPath, true);
+                Directory.CreateDirectory(visualPath);
+
+                try
+                {
+                    ZipFile.ExtractToDirectory(fileVisual, visualPath);
+                    Thread.Sleep(1000);
+
+                    if (Directory.Exists(visualPath))
+                    {
+                        string[] aioFiles = Directory.GetFiles(visualPath, "*AIO*.exe", SearchOption.AllDirectories);
+
+                        if (aioFiles.Length > 0)
+                        {
+                            Color("Ejecutando instalador AIO detectado...", ConsoleColor.Cyan);
+                            EjecutarComando($"\"{aioFiles[0]}\" /Y");
+                        }
+                        else
+                        {
+                            string[] installers = Directory.GetFiles(visualPath, "*.exe", SearchOption.AllDirectories);
+                            Color($"Se encontraron {installers.Length} instaladores.", ConsoleColor.Cyan);
+
+                            foreach (var exe in installers)
+                            {
+                                Console.WriteLine($"Instalando: {Path.GetFileName(exe)}...");
+                                EjecutarComando($"\"{exe}\" /passive /norestart");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Color($"Error extrayendo Visual C++: {ex.Message}", ConsoleColor.Red);
+                }
+            }
+        }
+        #endregion
+
+        #region LOGICA SERVICIOS Y EXTRAS
         static void MenuServicios()
         {
             Console.Clear();
@@ -678,7 +635,6 @@ static void AplicarRegistroMasivo()
 
             if (opcion != "1" && opcion != "2") return;
 
-            // Pregunta Xbox
             Console.Write("¿Quieres activar los servicios de Xbox? (y/n): ");
             bool xboxOn = (Console.ReadLine().ToLower() == "y");
             GestionarXbox(xboxOn);
@@ -691,7 +647,6 @@ static void AplicarRegistroMasivo()
             {
                 if (activar)
                 {
-                    // VISUALIZACIÓN: Escribe en verde qué servicio se activa
                     Console.Write("[ON] Activando: ");
                     Color(servicio, ConsoleColor.Green);
 
@@ -700,7 +655,6 @@ static void AplicarRegistroMasivo()
                 }
                 else
                 {
-                    // VISUALIZACIÓN: Escribe en rojo qué servicio se desactiva
                     Console.Write("[OFF] Desactivando: ");
                     Color(servicio, ConsoleColor.Red);
 
@@ -708,7 +662,7 @@ static void AplicarRegistroMasivo()
                     EjecutarComando($"sc config {servicio} start= disabled");
                 }
             }
-            ;
+
             Color("[+] Proceso de servicios finalizado.", ConsoleColor.Green);
             Thread.Sleep(3000);
         }
@@ -789,6 +743,7 @@ static void AplicarRegistroMasivo()
             string[] carpetas = { rutaBase, optimizacionPath, regPath, visualPath };
             foreach (var c in carpetas) if (!Directory.Exists(c)) Directory.CreateDirectory(c);
         }
+
         static async Task VerificarInternetYActualizaciones()
         {
             Color("Comprobando conectividad y actualizaciones...", ConsoleColor.Yellow);
@@ -800,7 +755,6 @@ static void AplicarRegistroMasivo()
                     if (reply.Status == IPStatus.Success)
                     {
                         Color("[+] Conexión establecida.", ConsoleColor.Green);
-                        // Llamamos al sistema de update
                         await SistemaAutoUpdate();
                     }
                     else
@@ -822,13 +776,10 @@ static void AplicarRegistroMasivo()
             {
                 using (HttpClient client = new HttpClient())
                 {
-                    // 1. Obtener la versión del servidor (GitHub)
-                    // Configura un tiempo de espera corto por si GitHub va lento
                     client.Timeout = TimeSpan.FromSeconds(5);
                     string versionServerStr = await client.GetStringAsync(urlVersionTxt);
-                    versionServerStr = versionServerStr.Trim(); // Quitar espacios o saltos de linea
+                    versionServerStr = versionServerStr.Trim();
 
-                    // Convertir a objetos Version para comparar correctamente (así 1.10 es mayor que 1.9)
                     Version versionLocal = Version.Parse(versionActual);
                     Version versionRemota = Version.Parse(versionServerStr);
 
@@ -836,7 +787,7 @@ static void AplicarRegistroMasivo()
                     {
                         Console.Clear();
                         Color("==================================================", ConsoleColor.Yellow);
-                        Color("           ACTUALIZACION ENCONTRADA               ", ConsoleColor.Yellow);
+                        Color("               ACTUALIZACION ENCONTRADA           ", ConsoleColor.Yellow);
                         Color("==================================================", ConsoleColor.Yellow);
                         Console.WriteLine();
                         Color($"Mi version:    {versionActual}", ConsoleColor.Gray);
@@ -852,24 +803,15 @@ static void AplicarRegistroMasivo()
                         {
                             Color("[+] Descargando nueva versión...", ConsoleColor.Cyan);
 
-                            // Nombre del ejecutable actual y el temporal
                             string exeActual = Process.GetCurrentProcess().MainModule.FileName;
                             string exeNuevo = Path.Combine(Path.GetDirectoryName(exeActual), "Update_Temp.exe");
 
-                            // 2. Descargar el nuevo EXE
                             var exeBytes = await client.GetByteArrayAsync(urlNuevoExe);
                             File.WriteAllBytes(exeNuevo, exeBytes);
 
                             Color("[+] Descarga finalizada. Reiniciando para aplicar...", ConsoleColor.Green);
                             Thread.Sleep(2000);
 
-                            // 3. Crear el BAT "Mágico" que hace el cambiazo
-                            // Explicación:
-                            // timeout 2: Espera a que la app C# se cierre del todo.
-                            // del: Borra el exe viejo.
-                            // ren: Renombra el descargado al nombre original.
-                            // start: Arranca la nueva versión.
-                            // del: Se borra a sí mismo (el bat).
                             string nombreExeSolo = Path.GetFileName(exeActual);
                             string batScript = $@"
                             @echo off
@@ -882,7 +824,6 @@ static void AplicarRegistroMasivo()
                             string batPath = Path.Combine(Path.GetDirectoryName(exeActual), "updater.bat");
                             File.WriteAllText(batPath, batScript);
 
-                            // 4. Ejecutar el BAT y cerrar esta app inmediatamente
                             ProcessStartInfo psi = new ProcessStartInfo(batPath)
                             {
                                 CreateNoWindow = true,
@@ -902,7 +843,7 @@ static void AplicarRegistroMasivo()
             catch (Exception ex)
             {
                 Color($"Error buscando actualizaciones: {ex.Message}", ConsoleColor.Red);
-                Thread.Sleep(2000); // Dar tiempo a leer el error
+                Thread.Sleep(2000);
             }
         }
 
@@ -927,7 +868,7 @@ static void AplicarRegistroMasivo()
                     psi = new ProcessStartInfo(fileName, comando);
                 }
 
-                psi.RedirectStandardOutput = false; // Mostrar output si quieres ver progreso real
+                psi.RedirectStandardOutput = false;
                 psi.RedirectStandardError = false;
                 psi.UseShellExecute = false;
                 psi.CreateNoWindow = true;
@@ -952,7 +893,6 @@ static void AplicarRegistroMasivo()
             using (WindowsIdentity id = WindowsIdentity.GetCurrent())
                 return new WindowsPrincipal(id).IsInRole(WindowsBuiltInRole.Administrator);
         }
-        #endregion
         #endregion
     }
 }
