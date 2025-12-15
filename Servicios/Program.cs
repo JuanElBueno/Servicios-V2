@@ -261,207 +261,273 @@ namespace Servicios
             EjecutarPowerShell($"set-ProcessMitigation -System -Disable {mitigations}");
         }
 
-        static void AplicarRegistroMasivo()
+static void AplicarRegistroMasivo()
         {
-            // 1. CALCULO DE RAM PARA 'SvcHostSplitThresholdInKB'
-            // CORREGIDO: Usamos WMIC directo para no necesitar referencias externas de VisualBasic
-            try
-            {
-                long memVal = 0;
-                ProcessStartInfo psi = new ProcessStartInfo("wmic", "os get TotalVisibleMemorySize /format:value");
-                psi.RedirectStandardOutput = true;
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
+            Color("[+] Aplicando optimizaciones masivas del registro (Mecha)...", ConsoleColor.Cyan);
 
-                using (Process p = Process.Start(psi))
+            // -----------------------------------------------------------------------------------------
+            // 1. CALCULO DE VARIABLES DINÁMICAS (RAM y CACHE CPU)
+            // -----------------------------------------------------------------------------------------
+            string l2Cache = "0";
+            string l3Cache = "0";
+            string svchostThreshold = "1048576"; // Valor por defecto seguro
+
+            try 
+            {
+                // A) Calcular RAM para SvcHostSplit
+                long memVal = 0;
+                using (Process p = new Process())
                 {
+                    p.StartInfo.FileName = "wmic";
+                    p.StartInfo.Arguments = "os get TotalVisibleMemorySize /format:value";
+                    p.StartInfo.RedirectStandardOutput = true;
+                    p.StartInfo.UseShellExecute = false;
+                    p.StartInfo.CreateNoWindow = true;
+                    p.Start();
                     string output = p.StandardOutput.ReadToEnd();
                     p.WaitForExit();
-
-                    // Analizamos la salida (Ej: TotalVisibleMemorySize=16000000)
-                    string[] lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                    foreach (var line in lines)
+                    
+                    if (output.Contains("TotalVisibleMemorySize"))
                     {
-                        if (line.Contains("TotalVisibleMemorySize"))
-                        {
-                            string valString = line.Split('=')[1].Trim();
-                            long.TryParse(valString, out memVal);
-                            break;
-                        }
+                        string val = output.Split('=')[1].Trim();
+                        long.TryParse(val, out memVal);
+                        if (memVal > 0) svchostThreshold = (memVal + 1024000).ToString();
                     }
                 }
 
-                if (memVal > 0)
+                // B) Calcular Cache L2 (%sum1%)
+                using (Process p = new Process())
                 {
-                    // Lógica original: set /a ram=%mem% + 1024000
-                    long svchostThreshold = memVal + 1024000;
-                    EjecutarComando($@"reg add ""HKLM\SYSTEM\CurrentControlSet\Control"" /v ""SvcHostSplitThresholdInKB"" /t REG_DWORD /d ""{svchostThreshold}"" /f");
+                    p.StartInfo.FileName = "wmic";
+                    p.StartInfo.Arguments = "cpu get L2CacheSize /format:value";
+                    p.StartInfo.RedirectStandardOutput = true;
+                    p.StartInfo.UseShellExecute = false;
+                    p.StartInfo.CreateNoWindow = true;
+                    p.Start();
+                    string output = p.StandardOutput.ReadToEnd();
+                    p.WaitForExit();
+                    // Buscamos el valor numérico
+                    var lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach(var line in lines) if(line.Contains("L2CacheSize")) l2Cache = line.Split('=')[1].Trim();
+                }
+
+                // C) Calcular Cache L3 (%sum2%)
+                using (Process p = new Process())
+                {
+                    p.StartInfo.FileName = "wmic";
+                    p.StartInfo.Arguments = "cpu get L3CacheSize /format:value";
+                    p.StartInfo.RedirectStandardOutput = true;
+                    p.StartInfo.UseShellExecute = false;
+                    p.StartInfo.CreateNoWindow = true;
+                    p.Start();
+                    string output = p.StandardOutput.ReadToEnd();
+                    p.WaitForExit();
+                    var lines = output.Split(new char[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach(var line in lines) if(line.Contains("L3CacheSize")) l3Cache = line.Split('=')[1].Trim();
                 }
             }
-            catch { } // Si falla el cálculo, continuamos con el resto
+            catch { } // Si falla WMI, se usan los valores por defecto "0"
 
-            // 2. LISTA COMPLETA DE COMANDOS REGISTRY (Copiados de tu script Batch)
-            // Nota: Las comillas dobles (") dentro del comando deben escribirse como dobles ("") en C#
+            // -----------------------------------------------------------------------------------------
+            // 2. LISTA COMPLETA DE COMANDOS REGISTRY
+            // -----------------------------------------------------------------------------------------
             string[] comandosReg = {
-        // --- Windows Update & Seguridad ---
-        @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""DoNotConnectToWindowsUpdateInternetLocations"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""SetDisableUXWUAccess"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"" /v ""NoAutoUpdate"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""ExcludeWUDriversInQualityUpdate"" /t REG_DWORD /d ""1"" /f",
-        
-        // --- FileSystem & NTFS (Tu lista masiva) ---
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""ContigFileAllocSize"" /t REG_DWORD /d ""1536"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""DisableDeleteNotification"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""DontVerifyRandomDrivers"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""FilenameCache"" /t REG_DWORD /d ""1024"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""LongPathsEnabled"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsAllowExtendedCharacter8dot3Rename"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsBugcheckOnCorrupt"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisable8dot3NameCreation"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisableCompression"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisableEncryption"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsEncryptPagingFile"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsMemoryUsage"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsMftZoneReservation"" /t REG_DWORD /d ""4"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""PathCache"" /t REG_DWORD /d ""128"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""RefsDisableLastAccessUpdate"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""UdfsSoftwareDefectManagement"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""Win31FileSystem"" /t REG_DWORD /d ""0"" /f",
+                // --- Power & Latency (Bloque Grande) ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""ExitLatency"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""ExitLatencyCheckEnabled"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""Latency"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyToleranceDefault"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyToleranceFSVP"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyTolerancePerfOverride"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyToleranceScreenOffIR"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyToleranceVSyncEnabled"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""RtlCapabilityCheckLatency"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""QosManagesIdleProcessors"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DisableVsyncLatencyUpdate"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DisableSensorWatchdog"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""CoalescingTimerInterval"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""InterruptSteeringDisabled"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LowLatencyScalingPercentage"" /t REG_DWORD /d ""100"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""HighPerformance"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""HighestPerformance"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MinimumThrottlePercent"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MaximumThrottlePercent"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MaximumPerformancePercent"" /t REG_DWORD /d ""100"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""InitialUnparkCount"" /t REG_DWORD /d ""100"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyActivelyUsed"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleLongTime"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleMonitorOff"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleNoContext"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleShortTime"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultD3TransitionLatencyIdleVeryLongTime"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceIdle0"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceIdle0MonitorOff"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceIdle1"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceIdle1MonitorOff"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceMemory"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceNoContext"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceNoContextMonitorOff"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceOther"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultLatencyToleranceTimerPeriod"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultMemoryRefreshLatencyToleranceActivelyUsed"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultMemoryRefreshLatencyToleranceMonitorOff"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DefaultMemoryRefreshLatencyToleranceNoContext"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MaxIAverageGraphicsLatencyInOneBucket"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MiracastPerfTrackGraphicsLatency"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MonitorLatencyTolerance"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MonitorRefreshLatencyTolerance"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""TransitionLatency"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""EnablePreemption"" /t REG_DWORD /d ""0"" /f",
 
-        // --- CurrentControlSet FileSystem (Repetido en tu script, lo mantenemos) ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""ContigFileAllocSize"" /t REG_DWORD /d ""1536"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""DisableDeleteNotification"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""DontVerifyRandomDrivers"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""FilenameCache"" /t REG_DWORD /d ""1024"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""LongPathsEnabled"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsAllowExtendedCharacter8dot3Rename"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsBugcheckOnCorrupt"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisable8dot3NameCreation"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisableCompression"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisableEncryption"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsEncryptPagingFile"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsMemoryUsage"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsMftZoneReservation"" /t REG_DWORD /d ""3"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""PathCache"" /t REG_DWORD /d ""128"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""RefsDisableLastAccessUpdate"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""UdfsSoftwareDefectManagement"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""Win31FileSystem"" /t REG_DWORD /d ""0"" /f",
+                // --- Priority Control ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl"" /v ""ConvertibleSlateMode"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl"" /v ""Win32PrioritySeparation"" /t REG_DWORD /d ""38"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\usbxhci\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\USBHUB3\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\NDIS\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
 
-        // --- Session Manager & Executive ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Executive"" /v ""AdditionalCriticalWorkerThreads"" /t REG_DWORD /d ""22"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Executive"" /v ""AdditionalDelayedWorkerThreads"" /t REG_DWORD /d ""22"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\I/O System"" /v ""CountOperations"" /t REG_DWORD /d ""0"" /f",
-        
-        // --- Memory Management ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""ClearPageFileAtShutdown"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverride"" /t REG_DWORD /d ""3"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverrideMask"" /t REG_DWORD /d ""3"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""IoPageLockLimit"" /t REG_DWORD /d ""16710656"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""LargeSystemCache"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""SystemPages"" /t REG_DWORD /d ""4294967295"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""DisablePagingExecutive"" /t REG_DWORD /d ""1"" /f",
-        
-        // --- Prefetch ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnableBootTrace"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnablePrefetcher"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnableSuperfetch"" /t REG_DWORD /d ""0"" /f",
+                // --- Session Manager & Desktop ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power"" /v ""CoalescingTimerInterval"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""AutoEndTasks"" /t REG_SZ /d ""1"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""HungAppTimeout"" /t REG_SZ /d ""1000"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""WaitToKillAppTimeout"" /t REG_SZ /d ""2000"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""LowLevelHooksTimeout"" /t REG_SZ /d ""1000"" /f",
+                @"reg add ""HKCU\Control Panel\Desktop"" /v ""MenuShowDelay"" /t REG_SZ /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control"" /v ""WaitToKillServiceTimeout"" /t REG_SZ /d ""2000"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance"" /v ""MaintenanceDisabled"" /t REG_DWORD /d ""1"" /f",
+                
+                // --- Driver & Policies ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""HibernateEnabled"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\DriverSearching"" /v ""SearchOrderConfig"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"" /v ""EnableLua"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR"" /v ""value"" /t REG_SZ /d ""00000000"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowSharedUserAppData"" /v ""value"" /t REG_DWORD /d ""0"" /f",
+                
+                // --- TCP/IP & Memory Overrides ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"" /v ""DisableTaskOffload"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverride"" /t REG_DWORD /d ""3"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverrideMask"" /t REG_DWORD /d ""3"" /f",
+                
+                // --- Services Start ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Spooler"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\PrintNotify"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\MapsBroker"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling"" /v ""PowerThrottlingOff"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\GpuEnergyDrv"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                
+                // --- System Policies ---
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"" /v ""EnableLUA"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler"" /v ""EnablePreemption"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications"" /v ""GlobalUserDisabled"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKCU\Software\Microsoft\Windows\CurrentVersion\Search"" /v ""BackgroundAppGlobalToggle"" /t REG_DWORD /d ""0"" /f",
 
-        // --- Multimedia & Network Throttling ---
-        @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"" /v ""NetworkThrottlingIndex"" /t REG_DWORD /d ""4294967295"" /f",
-        @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"" /v ""SystemResponsiveness"" /t REG_DWORD /d ""0"" /f",
+                // --- LanmanServer (Network Sharing) ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""autodisconnect"" /t REG_DWORD /d ""4294967295"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""Size"" /t REG_DWORD /d ""3"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""EnableOplocks"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""IRPStackSize"" /t REG_DWORD /d ""32"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""SharingViolationDelay"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\services\LanmanServer\Parameters"" /v ""SharingViolationRetries"" /t REG_DWORD /d ""0"" /f",
 
-        // --- LanmanServer (Network Sharing) ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""AutoDisconnect"" /t REG_DWORD /d ""4294967295"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""Size"" /t REG_DWORD /d ""3"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""EnableOplocks"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""IRPStackSize"" /t REG_DWORD /d ""32"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""SharingViolationDelay"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters"" /v ""SharingViolationRetries"" /t REG_DWORD /d ""0"" /f",
+                // --- Network Provider Priorities ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""LocalPriority"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""HostsPriority"" /t REG_DWORD /d ""5"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""DnsPriority"" /t REG_DWORD /d ""6"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""NetbtPriority"" /t REG_DWORD /d ""7"" /f",
+                
+                // --- Multimedia Throttling ---
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"" /v ""NetworkThrottlingIndex"" /t REG_DWORD /d ""4294967295"" /f",
+                @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"" /v ""SystemResponsiveness"" /t REG_DWORD /d ""0"" /f",
 
-        // --- Priority Control & Drivers ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl"" /v ""ConvertibleSlateMode"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\PriorityControl"" /v ""Win32PrioritySeparation"" /t REG_DWORD /d ""38"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\usbxhci\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\USBHUB3\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\nvlddmkm\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\NDIS\Parameters"" /v ""ThreadPriority"" /t REG_DWORD /d ""31"" /f",
+                // --- Variables Dinámicas de Cache (%sum1% y %sum2%) ---
+                // Aquí usamos interpolación de strings ($"") para meter los valores calculados
+                $@"reg add ""HKLM\SYSTEM\ControlSet001\Control\Session Manager\Memory Management"" /v ""SecondLevelDataCache"" /t REG_DWORD /d ""{l2Cache}"" /f",
+                $@"reg add ""HKLM\SYSTEM\ControlSet001\Control\Session Manager\Memory Management"" /v ""ThirdLevelDataCache"" /t REG_DWORD /d ""{l3Cache}"" /f",
+                
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\Session Manager\Memory Management"" /v ""PagingFiles"" /t REG_MULTI_SZ /d ""c:\pagefile.sys 0 0"" /f",
+                
+                // --- RAM Dinámica (SvcHostSplit) ---
+                $@"reg add ""HKLM\SYSTEM\CurrentControlSet\Control"" /v ""SvcHostSplitThresholdInKB"" /t REG_DWORD /d ""{svchostThreshold}"" /f",
 
-        // --- Desktop & User Experience ---
-        @"reg add ""HKCU\Control Panel\Desktop"" /v ""AutoEndTasks"" /t REG_SZ /d ""1"" /f",
-        @"reg add ""HKCU\Control Panel\Desktop"" /v ""HungAppTimeout"" /t REG_SZ /d ""1000"" /f",
-        @"reg add ""HKCU\Control Panel\Desktop"" /v ""WaitToKillAppTimeout"" /t REG_SZ /d ""2000"" /f",
-        @"reg add ""HKCU\Control Panel\Desktop"" /v ""LowLevelHooksTimeout"" /t REG_SZ /d ""1000"" /f",
-        @"reg add ""HKCU\Control Panel\Desktop"" /v ""MenuShowDelay"" /t REG_SZ /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control"" /v ""WaitToKillServiceTimeout"" /t REG_SZ /d ""2000"" /f",
-        @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\Maintenance"" /v ""MaintenanceDisabled"" /t REG_DWORD /d ""1"" /f",
-        
-        // --- Power Settings & Throttling ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""HibernateEnabled"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling"" /v ""PowerThrottlingOff"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\GpuEnergyDrv"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\Scheduler"" /v ""EnablePreemption"" /t REG_DWORD /d ""0"" /f",
-        
-        // --- Apps & Game DVR ---
-        @"reg add ""HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowGameDVR"" /v ""value"" /t REG_SZ /d ""00000000"" /f",
-        @"reg add ""HKLM\SOFTWARE\Microsoft\PolicyManager\default\ApplicationManagement\AllowSharedUserAppData"" /v ""value"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications"" /v ""GlobalUserDisabled"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKCU\Software\Microsoft\Windows\CurrentVersion\Search"" /v ""BackgroundAppGlobalToggle"" /t REG_DWORD /d ""0"" /f",
+                // --- FileSystem (ControlSet001) ---
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""ContigFileAllocSize"" /t REG_DWORD /d ""1536"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""DisableDeleteNotification"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""DontVerifyRandomDrivers"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""FilenameCache"" /t REG_DWORD /d ""1024"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""LongPathsEnabled"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsAllowExtendedCharacter8dot3Rename"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsBugcheckOnCorrupt"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisable8dot3NameCreation"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisableCompression"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsDisableEncryption"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsEncryptPagingFile"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsMemoryUsage"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""NtfsMftZoneReservation"" /t REG_DWORD /d ""4"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""PathCache"" /t REG_DWORD /d ""128"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""RefsDisableLastAccessUpdate"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""UdfsSoftwareDefectManagement"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\ControlSet001\Control\FileSystem"" /v ""Win31FileSystem"" /t REG_DWORD /d ""0"" /f",
 
-        // --- TCPIP Priority (Network) ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"" /v ""DisableTaskOffload"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""LocalPriority"" /t REG_DWORD /d ""4"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""HostsPriority"" /t REG_DWORD /d ""5"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""DnsPriority"" /t REG_DWORD /d ""6"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider"" /v ""NetbtPriority"" /t REG_DWORD /d ""7"" /f",
-        
-        // --- Servicios START (Deshabilitar/Optimizar) ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\Spooler"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\PrintNotify"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Services\MapsBroker"" /v ""Start"" /t REG_DWORD /d ""4"" /f",
+                // --- FileSystem (CurrentControlSet) ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""ContigFileAllocSize"" /t REG_DWORD /d ""1536"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""DisableDeleteNotification"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""DontVerifyRandomDrivers"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""FilenameCache"" /t REG_DWORD /d ""1024"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""LongPathsEnabled"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsAllowExtendedCharacter8dot3Rename"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsBugcheckOnCorrupt"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisable8dot3NameCreation"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisableCompression"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsDisableEncryption"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsEncryptPagingFile"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsMemoryUsage"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""NtfsMftZoneReservation"" /t REG_DWORD /d ""3"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""PathCache"" /t REG_DWORD /d ""128"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""RefsDisableLastAccessUpdate"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""UdfsSoftwareDefectManagement"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\FileSystem"" /v ""Win31FileSystem"" /t REG_DWORD /d ""0"" /f",
 
-        // --- Latencias y Power avanzado (Lista final larga del script) ---
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""ExitLatency"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""ExitLatencyCheckEnabled"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""Latency"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyToleranceDefault"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyToleranceFSVP"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyTolerancePerfOverride"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyToleranceScreenOffIR"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LatencyToleranceVSyncEnabled"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""RtlCapabilityCheckLatency"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""QosManagesIdleProcessors"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DisableVsyncLatencyUpdate"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""DisableSensorWatchdog"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""CoalescingTimerInterval"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""InterruptSteeringDisabled"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""LowLatencyScalingPercentage"" /t REG_DWORD /d ""100"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""HighPerformance"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""HighestPerformance"" /t REG_DWORD /d ""1"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MinimumThrottlePercent"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MaximumThrottlePercent"" /t REG_DWORD /d ""0"" /f",
-        @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Power"" /v ""MaximumPerformancePercent"" /t REG_DWORD /d ""100"" /f",
+                // --- Executive & Memory ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Executive"" /v ""AdditionalCriticalWorkerThreads"" /t REG_DWORD /d ""00000016"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Executive"" /v ""AdditionalDelayedWorkerThreads"" /t REG_DWORD /d ""00000016"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\I/O System"" /v ""CountOperations"" /t REG_DWORD /d ""00000000"" /f",
+                
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""ClearPageFileAtShutdown"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverride"" /t REG_DWORD /d ""00000003"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""FeatureSettingsOverrideMask"" /t REG_DWORD /d ""00000003"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""IoPageLockLimit"" /t REG_DWORD /d ""08000000"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""LargeSystemCache"" /t REG_DWORD /d ""00000000"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""SystemPages"" /t REG_DWORD /d ""4294967295"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""DisablePagingExecutive"" /t REG_DWORD /d ""1"" /f",
+                // Nota: Tu script repite IoPageLockLimit con otro valor, ponemos el último que sobreescribe
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"" /v ""IoPageLockLimit"" /t REG_DWORD /d ""16710656"" /f",
+                
+                // --- Prefetch ---
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnableBootTrace"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnablePrefetcher"" /t REG_DWORD /d ""0"" /f",
+                @"reg add ""HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters"" /v ""EnableSuperfetch"" /t REG_DWORD /d ""0"" /f",
 
-        // --- Fortnite Priority Class ---
-        @"reg add ""HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\FortniteClient-Win64-Shipping.exe\PerfOptions"" /v ""CpuPriorityClass"" /t REG_DWORD /d ""3"" /f"
-    };
+                // --- Windows Update Policies ---
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""DoNotConnectToWindowsUpdateInternetLocations"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""SetDisableUXWUAccess"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"" /v ""NoAutoUpdate"" /t REG_DWORD /d ""1"" /f",
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate"" /v ""ExcludeWUDriversInQualityUpdate"" /t REG_DWORD /d ""1"" /f"
+            };
 
             // 3. Ejecutar el bucle
             foreach (var cmd in comandosReg)
             {
                 EjecutarComando(cmd);
             }
-
+            
             // 4. Comandos TCP Heuristics
             EjecutarComando("netsh interface tcp set heuristics disabled");
-
-            // 5. USB IDLING (Es un bucle complejo en batch, aquí se hace dinámico)
-            // El script original hace un FOR sobre Win32_USBHub. En C# lo hacemos así:
+            
+            // 5. USB IDLING (Lógica compleja de tu script usando CMD directo)
             try
             {
-                // Esto equivale al loop FOR /F %%a in ('WMIC PATH Win32_USBHub...') del batch
-                // Pero para no complicar el código con WMI ManagementObjectSearcher (que requiere añadir Referencias),
-                // Ejecutamos el comando REG ADD global de HighPerformance que cubre la mayoría de casos. 
-                // Lo más fiel al script Batch original es invocar a CMD para que haga ese trabajo sucio:
                 string comandoBatchUSB = "FOR /F \"tokens=*\" %a in ('WMIC PATH Win32_USBHub GET DeviceID^| FINDSTR /L \"VID_\"') DO (REG ADD \"HKLM\\SYSTEM\\CurrentControlSet\\Enum\\%a\\Device Parameters\" /F /V \"EnhancedPowerManagementEnabled\" /T REG_DWORD /d 0)";
                 EjecutarComando(comandoBatchUSB);
             }
