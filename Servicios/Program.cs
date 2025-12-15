@@ -833,17 +833,31 @@ namespace Servicios
         {
             try
             {
-                ProcessStartInfo psi = new ProcessStartInfo(fileName, fileName == "cmd.exe" ? "/c " + comando : comando)
+                ProcessStartInfo psi;
+                if (fileName.Equals("cmd.exe", StringComparison.OrdinalIgnoreCase))
                 {
-                    RedirectStandardOutput = false, // Mostrar output si quieres ver progreso real
-                    RedirectStandardError = false,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    Verb = "runas"
-                };
+                    psi = new ProcessStartInfo("cmd.exe", "/c " + comando);
+                }
+                else if (fileName.Equals("powershell.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    psi = new ProcessStartInfo("powershell.exe", "-NoProfile -ExecutionPolicy Bypass -Command \"" + comando + "\"");
+                }
+                else
+                {
+                    psi = new ProcessStartInfo(fileName, comando);
+                }
+
+                psi.RedirectStandardOutput = false; // Mostrar output si quieres ver progreso real
+                psi.RedirectStandardError = false;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+
                 using (Process p = Process.Start(psi)) { p.WaitForExit(); }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error ejecutando comando ({fileName}): {ex.Message}");
+            }
         }
 
         static void Color(string texto, ConsoleColor color)

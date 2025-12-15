@@ -113,3 +113,12 @@ jobs:
       with:
         name: MSIX Package
         path: ${{ env.Wap_Project_Directory }}\AppPackages
+
+    # Crear una etiqueta en Git con el mensaje "rediseño"
+    - name: Crear etiqueta de versión
+      run: |
+        $version = "v1.1"  # Cambia esto dinámicamente según la versión que estés generando
+        git config user.name "github-actions"
+        git config user.email "actions@github.com"
+        git tag -a $version -m "rediseño"
+        git push origin $version
