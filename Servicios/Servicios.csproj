@@ -6,8 +6,8 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{AF13CD43-C0EB-4B4C-ADA6-6F5D8E297CBD}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>Servicios_V2</RootNamespace>
-    <AssemblyName>Servicios V2</AssemblyName>
+    <RootNamespace>Servicios</RootNamespace>
+    <AssemblyName>Servicios</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
