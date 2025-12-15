@@ -696,12 +696,26 @@ namespace Servicios
 
         static void OptimizarInternet()
         {
+            Console.Clear();
+            Color("[+] Configurando uso de platform tick...", ConsoleColor.Yellow);
             EjecutarComando("bcdedit /set useplatformtick yes");
+
+            Color("[+] Limpiando caché DNS...", ConsoleColor.Yellow);
             EjecutarComando("ipconfig /flushdns");
+
+            Color("[+] Reiniciando configuración de IP...", ConsoleColor.Yellow);
             EjecutarComando("netsh int ip reset");
+
+            Color("[+] Reiniciando configuración de IPv4...", ConsoleColor.Yellow);
             EjecutarComando("netsh int ipv4 reset");
+
+            Color("[+] Reiniciando configuración de IPv6...", ConsoleColor.Yellow);
             EjecutarComando("netsh int ipv6 reset");
+
+            Color("[+] Reiniciando configuración de Winsock...", ConsoleColor.Yellow);
             EjecutarComando("netsh winsock reset");
+
+            Color("[+] Optimización de Internet completada.", ConsoleColor.Green);
         }
 
         static void CrearCarpetas()
