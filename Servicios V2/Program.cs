@@ -25,7 +25,7 @@ namespace Servicios
         // Ruta de WinRAR (necesaria según tu script)
         static string winrarPath = @"C:\Program Files\WinRAR\WinRAR.exe";
 
-        static string versionActual = "1.1";
+        static string versionActual = "1.0";
 
         // Servicios Generales (Opción 1)
         static string[] listaServicios = {
